@@ -1,6 +1,7 @@
 package com.example.save2downloads
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ContentValues
 import android.content.Intent
 import android.database.Cursor
@@ -10,6 +11,9 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.text.InputType
+import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.Toast
 import java.io.File
 import java.io.FileOutputStream
@@ -22,28 +26,62 @@ class MainActivity : Activity() {
         when (intent?.action) {
             Intent.ACTION_SEND -> {
                 (intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM))?.let { uri ->
-                    saveFile(uri)
+                    promptAndSave(uri)
                 }
             }
             Intent.ACTION_SEND_MULTIPLE -> {
                 intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)?.forEach { uri ->
-                    saveFile(uri)
+                    promptAndSave(uri)
                 }
             }
             else -> {
                 Toast.makeText(this, "Open this app by sharing a file to it", Toast.LENGTH_LONG).show()
+                finish()
             }
         }
-
-        finish()
     }
 
-    private fun saveFile(sourceUri: Uri) {
-        val fileName = getFileName(sourceUri) ?: "shared_file"
+    private fun promptAndSave(sourceUri: Uri) {
+        val defaultName = getFileName(sourceUri) ?: "shared_file"
 
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(50, 30, 50, 0)
+        }
+
+        val input = EditText(this).apply {
+            setText(defaultName)
+            setSelectAllOnFocus(true)
+            inputType = InputType.TYPE_CLASS_TEXT
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        layout.addView(input)
+
+        AlertDialog.Builder(this)
+            .setTitle("Save to Downloads")
+            .setMessage("Edit filename if needed:")
+            .setView(layout)
+            .setPositiveButton("Save") { _, _ ->
+                val fileName = input.text.toString().trim().ifEmpty { defaultName }
+                saveFile(sourceUri, fileName)
+                finish()
+            }
+            .setNegativeButton("Cancel") { _, _ ->
+                finish()
+            }
+            .setOnCancelListener {
+                finish()
+            }
+            .show()
+    }
+
+    private fun saveFile(sourceUri: Uri, fileName: String) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // Android 10+ — use MediaStore (no storage permission needed)
                 val values = ContentValues().apply {
                     put(MediaStore.Downloads.DISPLAY_NAME, fileName)
                     put(MediaStore.Downloads.MIME_TYPE, contentResolver.getType(sourceUri) ?: "*/*")
@@ -58,14 +96,12 @@ class MainActivity : Activity() {
                             input.copyTo(output)
                         }
                     }
-                    // Clear pending flag
                     val clearValues = ContentValues().apply {
                         put(MediaStore.Downloads.IS_PENDING, 0)
                     }
                     contentResolver.update(uri, clearValues, null, null)
                 }
             } else {
-                // Pre-Android 10 — direct file write (needs WRITE_EXTERNAL_STORAGE permission)
                 val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 val destFile = File(downloadsDir, fileName)
 
