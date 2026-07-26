@@ -66,8 +66,9 @@ class MainActivity : Activity() {
             .setMessage("Edit filename if needed:")
             .setView(layout)
             .setPositiveButton("Save") { _, _ ->
-                val fileName = input.text.toString().trim().ifEmpty { defaultName }
-                saveFile(sourceUri, fileName)
+                val chosenName = input.text.toString().trim().ifEmpty { defaultName }
+                val finalName = resolveUniqueName(chosenName)
+                saveFile(sourceUri, finalName)
                 finish()
             }
             .setNegativeButton("Cancel") { _, _ ->
@@ -77,6 +78,42 @@ class MainActivity : Activity() {
                 finish()
             }
             .show()
+    }
+
+    private fun resolveUniqueName(desiredName: String): String {
+        if (!fileExistsInDownloads(desiredName)) {
+            return desiredName
+        }
+
+        val dotIndex = desiredName.lastIndexOf('.')
+        val base = if (dotIndex > 0) desiredName.substring(0, dotIndex) else desiredName
+        val ext = if (dotIndex > 0) desiredName.substring(dotIndex) else ""
+
+        var n = 1
+        while (true) {
+            val candidate = "$base ($n)$ext"
+            if (!fileExistsInDownloads(candidate)) {
+                return candidate
+            }
+            n++
+        }
+    }
+
+    private fun fileExistsInDownloads(fileName: String): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val projection = arrayOf(MediaStore.Downloads._ID)
+            val selection = "${MediaStore.Downloads.DISPLAY_NAME} = ? AND ${MediaStore.Downloads.RELATIVE_PATH} LIKE ?"
+            val selectionArgs = arrayOf(fileName, "%${Environment.DIRECTORY_DOWNLOADS}%")
+            contentResolver.query(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                projection, selection, selectionArgs, null
+            )?.use { cursor ->
+                cursor.count > 0
+            } ?: false
+        } else {
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            File(downloadsDir, fileName).exists()
+        }
     }
 
     private fun saveFile(sourceUri: Uri, fileName: String) {
